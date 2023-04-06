@@ -1,0 +1,58 @@
+name: Build and Release
+
+run-name: Build and Release
+
+on: [push]
+
+env:
+  VERSION: 1.22.0
+
+jobs:
+  Build-and-Release:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      -
+        name: Checkout
+        run: |
+          git clone ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git \
+          && cd build-test \
+          && git checkout ${GITHUB_REF#refs/*/}
+      -
+        name: Set up QEMU
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: docker/setup-qemu-action@v2
+      -
+        name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      -
+        name: Build amd64
+        run: |
+          cd build-test \
+            && docker buildx build --build-arg VERSION="${VERSION}" --platform linux/amd64 --output type=local,dest=$(pwd)/out/amd64/ .
+      -
+        name: Build arm64
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          cd build-test \
+          && docker buildx build --build-arg VERSION="${VERSION}" --platform linux/arm64 --output type=local,dest=$(pwd)/out/arm64/ .
+      -
+        name: Rename files
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          cd build-test \
+          && mv ./out/amd64/ngx_http_brotli_filter_module.so ./out/amd64/ngx_http_brotli_filter_module-amd64.so \
+          && mv ./out/amd64/ngx_http_brotli_static_module.so ./out/amd64/ngx_http_brotli_static_module-amd64.so \
+          && mv ./out/amd64/ngx_http_brotli_module_${VERSION}.tar.gz ./out/amd64/ngx_http_brotli_module_${VERSION}-amd64.tar.gz \
+          && mv ./out/arm64/ngx_http_brotli_filter_module.so ./out/arm64/ngx_http_brotli_filter_module-arm64.so \
+          && mv ./out/arm64/ngx_http_brotli_static_module.so ./out/arm64/ngx_http_brotli_static_module-arm64.so \
+          && mv ./out/arm64/ngx_http_brotli_module_${VERSION}.tar.gz ./out/arm64/ngx_http_brotli_module_${VERSION}-arm64.tar.gz
+      -
+        name: Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd build-test \
+          && gh release create ${GITHUB_REF#refs/*/} -t ${GITHUB_REF#refs/*/} -n "nginx:${VERSION}-alpine" ./out/amd64/ngx_http_brotli_*_module-*.so ./out/amd64/ngx_http_brotli_module_*.tar.gz ./out/arm64/ngx_http_brotli_*_module-*.so ./out/arm64/ngx_http_brotli_module_*.tar.gz
